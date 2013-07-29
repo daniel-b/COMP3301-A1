@@ -8,19 +8,27 @@ COMP3301 - Assignment 1
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 /* Function Prototypes */
 int printprompt(void);
 char** getcommand(void);
 int parsecommand(char**);
 int getlength(char** array);
+int basiccommand(char** command_array);
 
 int main(void)
 {
+	pid_t current_command;
 	while(1){
 		printprompt();
-		if(parsecommand(getcommand()) == 1){
+		current_command = parsecommand(getcommand());
+		if(current_command == 1){
 			/*Kill background processes !!!!!!!!!*/
+			return 0;
+		}
+		else if(current_command == -2){
 			return 0;
 		}
 	}
@@ -136,6 +144,10 @@ arguments. Returns 1 if exit was entered. Returns -1 if no input was entered (or
 */
 int parsecommand(char** input)
 {
+	pid_t pid;
+	int wait_status;
+	char command_buf[129];
+	
 	if(input == NULL || input[0] == NULL){
 		return -1;/*no userinput*/
 	}
@@ -144,10 +156,61 @@ int parsecommand(char** input)
 			if(chdir(input[1]) != 0){
 				printf("\nError changing directory.\n");
 			}
+		}else{
+			if(chdir(getenv("HOME")) != 0){
+				printf("\nError changing directory.\n");
+			}
 		}
 	}
 	else if(strcmp(input[0], "exit") == 0){
 		return 1;
+	}
+	else if(input[0][0] == '#'){
+		return 0;/*Return as it is a comment line.*/
+	}
+	/*Non Built in commands are parsed below*/
+	else{
+		
+		if(basiccommand(input) == 0){
+			strncpy(command_buf, input[0], 129);
+			pid = fork();
+			if(pid < 0){
+				printf("\nError executing command.\n");
+			}
+			else if(pid == 0){/*Child process*/
+				execvp(command_buf, input);/*input[1], (char*)0);*/
+				printf("\nFailed to run command: %s\n", command_buf);/*only run if exec fails*/
+				exit(0);
+			}
+			
+			pid = waitpid(pid, &wait_status, 0);/*Parent Process*/
+			if(pid < 0){
+				printf("\nCommand cancelled.\n");
+			}
+		}
+	}
+	return 0;
+}
+
+/*basiccommand() returns 0 if none of the arguments given is:
+<, > (redirects), | (pipe) or &(run proccess in background) arguments. 
+
+Returns -1 if an argument is one of the above listed.
+*/
+int basiccommand(char** command_array)
+{
+	int i = 0;
+	
+	/*Start at element[1] as element[0] is the command and not an argument.*/
+	for(i=1; i < getlength(command_array); i++){
+		if(command_array[i] == NULL){
+			return 0;
+		}
+		else if(strcmp(command_array[i], "<") == 0 || strcmp(command_array[i], ">") == 0 || 
+			strcmp(command_array[i], "|") == 0 || strcmp(command_array[i], "&") == 0)
+		{
+			return -1;
+		}
 	}
 	return 0;
 }
@@ -156,5 +219,7 @@ int getlength(char** array)
 {
 	int count = 0;
 	while(array[count] != NULL) count++;
-	return count;
+	return count + 1;/*+ 1 as the NULL element is an element.*/
 }
+
+
